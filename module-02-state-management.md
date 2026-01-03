@@ -2068,3 +2068,1074 @@ Before moving on, ensure you can:
 **Next:** Section 3 - State Updates and Batching
 
 ---
+
+## Section 3: State Updates and Batching
+
+**Estimated time:** 20-25 minutes
+
+### Pre-Test (Answer before reading)
+
+Before learning about state updates, test your assumptions:
+
+1. **What happens if you call `setCount` three times in a row?**
+   ```jsx
+   setCount(count + 1);
+   setCount(count + 1);
+   setCount(count + 1);
+   ```
+   - [ ] count increases by 3
+   - [ ] count increases by 1
+   - [ ] Error
+   - [ ] I don't know
+
+2. **True/False:** `setCount(5)` updates the `count` variable immediately
+
+3. **Guess:** Why would React batch multiple state updates together?
+
+<details>
+<summary>Check your answers</summary>
+
+1. **count increases by 1** - All three use the same `count` snapshot
+2. **FALSE** - State updates are scheduled, not immediate
+3. **Performance** - Batching prevents multiple re-renders (1 render instead of 3)
+
+</details>
+
+---
+
+### The Problem: Multiple State Updates
+
+**Scenario:** Update count three times when button is clicked
+
+```jsx
+function Counter() {
+  const [count, setCount] = useState(0);
+
+  function handleClick() {
+    setCount(count + 1);  // Expect: 1
+    setCount(count + 1);  // Expect: 2
+    setCount(count + 1);  // Expect: 3
+  }
+
+  return <button onClick={handleClick}>{count}</button>;
+}
+```
+
+**What you expect:** count goes from 0 → 3
+
+**What actually happens:** count goes from 0 → 1
+
+**Why?**
+
+```
+Render 1: count = 0
+
+User clicks button:
+  handleClick() runs with count = 0 (snapshot from render 1)
+  setCount(0 + 1) → schedules update to 1
+  setCount(0 + 1) → schedules update to 1 (same snapshot!)
+  setCount(0 + 1) → schedules update to 1 (same snapshot!)
+
+React batches updates: "set count to 1"
+
+Render 2: count = 1
+```
+
+All three `setCount` calls use `count = 0` because that's the snapshot from the current render.
+
+---
+
+### Solution: Functional Updates
+
+**When next state depends on previous state, use a function:**
+
+```jsx
+function handleClick() {
+  setCount(c => c + 1);  // c = 0, returns 1
+  setCount(c => c + 1);  // c = 1, returns 2
+  setCount(c => c + 1);  // c = 2, returns 3
+}
+// Result: count = 3 ✅
+```
+
+**Mental trace:**
+
+```
+Render 1: count = 0
+
+User clicks:
+  setCount(c => c + 1)
+    → queued update: function that takes prev state and returns prev + 1
+
+  setCount(c => c + 1)
+    → queued update: function that takes prev state and returns prev + 1
+
+  setCount(c => c + 1)
+    → queued update: function that takes prev state and returns prev + 1
+
+React processes queue:
+  Start with: 0
+  Apply first function: 0 + 1 = 1
+  Apply second function: 1 + 1 = 2
+  Apply third function: 2 + 1 = 3
+  Final result: 3
+
+Render 2: count = 3
+```
+
+**The key:** Each updater function receives the **result of the previous update**, not the snapshot from the current render.
+
+---
+
+### Functional Update Pattern
+
+**Syntax:**
+```jsx
+setState(prevState => nextState)
+```
+
+**Examples:**
+
+```jsx
+// Increment
+setCount(c => c + 1);
+
+// Decrement
+setCount(c => c - 1);
+
+// Toggle
+setIsOpen(prev => !prev);
+
+// Add to array
+setItems(items => [...items, newItem]);
+
+// Update object
+setUser(user => ({ ...user, name: 'Alice' }));
+```
+
+**When to use:**
+- ✅ When next state depends on previous state
+- ✅ When calling setter multiple times in one event
+- ✅ In async code (timeouts, promises)
+- ✅ In effects or event handlers that might run concurrently
+
+**When NOT needed:**
+- Setting to a specific value (not dependent on previous)
+  ```jsx
+  setCount(5);  // Fine, not dependent
+  setName('Alice');  // Fine
+  ```
+
+---
+
+### State Update Batching
+
+**What is batching?**
+
+React **groups multiple state updates** into a single re-render for performance.
+
+**Example:**
+
+```jsx
+function handleClick() {
+  setCount(count + 1);
+  setName('Alice');
+  setAge(30);
+  setCity('NYC');
+}
+```
+
+**Without batching:**
+```
+setCount → re-render #1
+setName  → re-render #2
+setAge   → re-render #3
+setCity  → re-render #4
+Total: 4 re-renders
+```
+
+**With batching:**
+```
+setCount → queue update
+setName  → queue update
+setAge   → queue update
+setCity  → queue update
+End of event handler → process all → re-render once
+Total: 1 re-render
+```
+
+---
+
+### React 18+ Automatic Batching
+
+**React 18 introduced automatic batching everywhere**
+
+**React 17 (old behavior):**
+```jsx
+// Batched ✅
+function handleClick() {
+  setCount(1);
+  setName('Alice');
+  // 1 render
+}
+
+// NOT batched ❌
+function handleClick() {
+  fetch('/api').then(() => {
+    setCount(1);
+    setName('Alice');
+    // 2 renders (one for each setState)
+  });
+}
+
+// NOT batched ❌
+setTimeout(() => {
+  setCount(1);
+  setName('Alice');
+  // 2 renders
+}, 1000);
+```
+
+**React 18+ (new behavior):**
+```jsx
+// Batched ✅
+function handleClick() {
+  setCount(1);
+  setName('Alice');
+  // 1 render
+}
+
+// ALSO batched ✅
+function handleClick() {
+  fetch('/api').then(() => {
+    setCount(1);
+    setName('Alice');
+    // 1 render (batched!)
+  });
+}
+
+// ALSO batched ✅
+setTimeout(() => {
+  setCount(1);
+  setName('Alice');
+  // 1 render (batched!)
+}, 1000);
+```
+
+**Batching is now automatic in:**
+- Event handlers
+- Promises (`.then`, `async/await`)
+- `setTimeout`/`setInterval`
+- Native event handlers
+- Anywhere React has control
+
+---
+
+### Opting Out of Batching (Rare)
+
+**If you NEED synchronous updates** (very rare), use `flushSync`:
+
+```jsx
+import { flushSync } from 'react-dom';
+
+function handleClick() {
+  flushSync(() => {
+    setCount(count + 1);
+  });
+  // DOM updated immediately here
+
+  flushSync(() => {
+    setName('Alice');
+  });
+  // DOM updated immediately here
+}
+```
+
+**Warning:** This is a performance escape hatch. Almost never needed.
+
+**Valid use case:** Scrolling to element that depends on state
+```jsx
+flushSync(() => {
+  setMessages([...messages, newMessage]);
+});
+scrollToBottom();  // Needs DOM to be updated first
+```
+
+---
+
+### Mental Model: The Update Queue
+
+**How React processes state updates:**
+
+```jsx
+const [count, setCount] = useState(0);
+
+function handleClick() {
+  setCount(count + 1);      // Queue: [1]
+  setCount(count + 1);      // Queue: [1, 1]
+  setCount(c => c + 1);     // Queue: [1, 1, fn]
+  setCount(42);             // Queue: [1, 1, fn, 42]
+}
+```
+
+**Processing the queue:**
+
+```
+Start: 0
+
+Process queue:
+1. setCount(1)       → state = 1
+2. setCount(1)       → state = 1 (same value, no change)
+3. setCount(c => c + 1) → state = 1 + 1 = 2
+4. setCount(42)      → state = 42
+
+Final: 42
+```
+
+**Rule:** Later updates override earlier ones (unless using functions).
+
+---
+
+### Common Patterns and Gotchas
+
+**Pattern 1: Increment based on current value**
+
+```jsx
+❌ setCount(count + 1);  // Uses snapshot
+
+✅ setCount(c => c + 1);  // Uses latest
+```
+
+---
+
+**Pattern 2: Multiple related updates**
+
+```jsx
+❌ function addTodo(todo) {
+  setTodos([...todos, todo]);
+  setCount(count + 1);  // count might be stale
+}
+
+✅ function addTodo(todo) {
+  setTodos(todos => [...todos, todo]);
+  setCount(c => c + 1);  // Guaranteed fresh
+}
+```
+
+---
+
+**Pattern 3: Update based on props**
+
+```jsx
+function Counter({ step }) {
+  const [count, setCount] = useState(0);
+
+  function increment() {
+    ❌ setCount(count + step);  // Captures current step
+
+    ✅ setCount(c => c + step);  // Uses latest step
+  }
+}
+```
+
+---
+
+**Gotcha 1: Object updates need spreading**
+
+```jsx
+const [user, setUser] = useState({ name: 'Alice', age: 30 });
+
+❌ setUser(user.age = 31);  // Mutation, doesn't trigger re-render
+
+✅ setUser({ ...user, age: 31 });  // New object
+
+✅ setUser(u => ({ ...u, age: 31 }));  // Functional + new object
+```
+
+---
+
+**Gotcha 2: Array updates need new array**
+
+```jsx
+const [items, setItems] = useState([1, 2, 3]);
+
+❌ items.push(4);
+   setItems(items);  // Same reference, no re-render
+
+✅ setItems([...items, 4]);  // New array
+
+✅ setItems(items => [...items, 4]);  // Functional + new array
+```
+
+---
+
+### 2-Minute Immediate Recall
+
+Without looking back:
+
+1. If you call `setCount(count + 1)` three times, does count increase by 3?
+2. What's the syntax for functional updates?
+3. What is "batching" in React?
+4. In React 18+, are updates in promises batched?
+5. When should you use functional updates vs direct updates?
+
+<details>
+<summary>Check your recall</summary>
+
+1. **No** - count increases by 1 (all use same snapshot)
+2. **`setState(prevState => nextState)`** - function receives previous state
+3. **Grouping multiple state updates into one re-render** for performance
+4. **Yes** - React 18+ batches everywhere (promises, timeouts, etc.)
+5. **Functional when next state depends on previous** - Direct when setting to specific value
+
+</details>
+
+---
+
+### Feynman Challenge
+
+**Explain to someone who knows JavaScript but not React:**
+
+"Why does calling `setCount(count + 1)` three times in a row only increment by 1? And how do functional updates fix this?"
+
+**Your explanation:**
+[Pause here and create your explanation]
+
+<details>
+<summary>Compare to example explanation</summary>
+
+**Example explanation:**
+
+"React components are functions that run from top to bottom each time they render. When a component renders, all variables (including state) are set to their values for that render - like a snapshot.
+
+So if `count` is 0 when your function runs:
+
+```javascript
+function handleClick() {
+  const count = 0;  // Snapshot for this render
+
+  setCount(count + 1);  // setCount(0 + 1) → setCount(1)
+  setCount(count + 1);  // setCount(0 + 1) → setCount(1) (count is still 0!)
+  setCount(count + 1);  // setCount(0 + 1) → setCount(1) (count is still 0!)
+}
+```
+
+All three calls say 'set count to 1' because they all read from the same snapshot where `count` is 0.
+
+Functional updates fix this by saying 'take whatever the count IS (even if I don't know yet) and add 1':
+
+```javascript
+setCount(c => c + 1);  // Take current count, add 1
+setCount(c => c + 1);  // Take that result, add 1
+setCount(c => c + 1);  // Take that result, add 1
+```
+
+Now React chains them: 0 → (0+1) → (1+1) → (2+1) → Final: 3.
+
+It's like the difference between saying 'set the price to $10' three times (still $10) versus saying 'add $10 to the price' three times (adds up to $30)."
+
+**How did you do?**
+- Used the snapshot analogy? Good mental model
+- Explained the chaining? Shows understanding
+- Struggled? Re-read "The Problem: Multiple State Updates"
+
+</details>
+
+---
+
+### 🤔 Elaborative Interrogation
+
+**Why does React batch state updates instead of applying each one immediately?**
+
+<details>
+<summary>Expand for explanation</summary>
+
+**Answer:** **Performance** - Batching prevents wasteful re-renders.
+
+**Scenario without batching:**
+
+```jsx
+function handleSubmit() {
+  setName('Alice');      // Trigger re-render #1
+  setAge(30);            // Trigger re-render #2
+  setEmail('a@example'); // Trigger re-render #3
+  setCity('NYC');        // Trigger re-render #4
+}
+```
+
+**Each re-render involves:**
+1. Calling your component function
+2. Comparing JSX (Virtual DOM diff)
+3. Updating actual DOM if needed
+
+**With 4 state updates:**
+- Component runs 4 times
+- 4 Virtual DOM diffs
+- 4 potential DOM updates
+- User sees intermediate states (flickering)
+
+**With batching:**
+```jsx
+function handleSubmit() {
+  setName('Alice');      // Queue update
+  setAge(30);            // Queue update
+  setEmail('a@example'); // Queue update
+  setCity('NYC');        // Queue update
+  // End of function → Process all updates → 1 re-render
+}
+```
+
+- Component runs once
+- 1 Virtual DOM diff
+- 1 DOM update
+- User sees final state only
+
+**Performance gain:**
+- 3x fewer renders in this example
+- Real apps might update 10-20 state variables in one interaction
+- Batching makes this manageable
+
+**React 18 improvement:**
+
+Before React 18, batching only worked in event handlers. Async code triggered separate renders:
+
+```jsx
+// React 17
+fetch('/api').then(data => {
+  setData(data);      // Re-render #1
+  setLoading(false);  // Re-render #2
+});
+```
+
+React 18 batches everywhere, even async code, for consistent performance.
+
+</details>
+
+---
+
+**Why use `c => c + 1` instead of just `count + 1` in setState?**
+
+<details>
+<summary>Expand for explanation</summary>
+
+**Answer:** **Guarantees you're working with the latest value**, not a stale snapshot.
+
+**Problem with direct updates:**
+
+State is a snapshot that's "frozen" for the duration of a render:
+
+```jsx
+function Component() {
+  const [count, setCount] = useState(0);
+
+  // count = 0 throughout this entire function execution
+
+  function handleClick() {
+    setCount(count + 1);  // Uses count = 0
+    setCount(count + 1);  // Uses count = 0 (not updated yet!)
+
+    // Even if you wait:
+    setTimeout(() => {
+      setCount(count + 1);  // Still uses count = 0 (from closure!)
+    }, 1000);
+  }
+}
+```
+
+**JavaScript closures** capture variables at the time the function is defined. So `count` inside the timeout is locked to the value when `handleClick` ran.
+
+**With functional updates:**
+
+```jsx
+function handleClick() {
+  setCount(c => c + 1);  // React: "call this with latest count"
+  setCount(c => c + 1);  // React: "call this with latest count"
+
+  setTimeout(() => {
+    setCount(c => c + 1);  // React: "call this with latest count"
+  }, 1000);
+}
+```
+
+React calls your function with the most recent state value, **bypassing closures**.
+
+**When it matters most:**
+
+1. **Multiple updates in one event**
+   ```jsx
+   setCount(c => c + 1);
+   setCount(c => c + 1);  // Need functional for correctness
+   ```
+
+2. **Async code**
+   ```jsx
+   fetch('/api').then(() => {
+     setCount(c => c + 1);  // count might have changed by now
+   });
+   ```
+
+3. **Effects that update state**
+   ```jsx
+   useEffect(() => {
+     const interval = setInterval(() => {
+       setCount(c => c + 1);  // count in closure might be stale
+     }, 1000);
+   }, []);  // Empty deps, so count is captured once
+   ```
+
+**When direct is fine:**
+
+```jsx
+setCount(5);  // Setting to specific value, not dependent on previous
+setName('Alice');  // Not dependent on previous name
+```
+
+</details>
+
+---
+
+**Why does React 18 batch updates in async code but React 17 didn't?**
+
+<details>
+<summary>Expand for explanation</summary>
+
+**Answer:** **Architecture change** - React 18 introduced concurrent rendering which enabled consistent batching everywhere.
+
+**React 17 limitation:**
+
+React's batching was tied to **browser event handlers** that React controlled:
+
+```jsx
+<button onClick={handleClick}>
+  // React wraps this in batching code
+</button>
+```
+
+Inside `handleClick`, React knew to batch. But once you left React's control (promises, timeouts), batching stopped:
+
+```jsx
+function handleClick() {
+  // React controls this code → batching works ✅
+
+  fetch('/api').then(() => {
+    // Outside React's control → no batching ❌
+    setData(data);
+    setLoading(false);  // Separate render
+  });
+}
+```
+
+**React 18 solution: Concurrent Features**
+
+React 18 can **interrupt and resume work**, which required tracking where work came from:
+
+- New internal queue system
+- Updates can be prioritized
+- React can batch across **any** asynchronous boundary
+
+**Technical change:**
+
+```javascript
+// React 17: Batching tied to event dispatch
+unstable_batchedUpdates(() => {
+  // Only here
+});
+
+// React 18: Automatic batching
+// All updates go through new queue system
+// Batched by default everywhere
+```
+
+**Benefits:**
+
+1. **Consistent behavior** - Same batching everywhere
+2. **Better performance** - Fewer renders in async code
+3. **Simpler mental model** - Don't need to think about where updates happen
+4. **Foundation for concurrent rendering** - Enables features like `useTransition`, `useDeferredValue`
+
+**Backwards compatibility:**
+
+If code relied on separate renders (very rare), use `flushSync`:
+
+```jsx
+flushSync(() => setData(data));  // Force immediate render
+setLoading(false);  // Separate render
+```
+
+But 99.9% of apps benefit from automatic batching without changes.
+
+</details>
+
+---
+
+### Common Interview Questions
+
+**Q: "What's the difference between `setCount(count + 1)` and `setCount(c => c + 1)`?"**
+
+**Strong answer:**
+
+**Direct update** (`setCount(count + 1)`):
+- Uses the state value from the current render (snapshot)
+- Multiple calls in same event use same snapshot
+- Example: Three calls only increment by 1
+
+**Functional update** (`setCount(c => c + 1)`):
+- React calls your function with the latest state value
+- Multiple calls chain together
+- Example: Three calls increment by 3
+
+**When to use each:**
+
+Use **functional** when:
+- Next state depends on previous state
+- Multiple updates in one event
+- In async code (promises, timeouts)
+- In effects with stale closures
+
+Use **direct** when:
+- Setting to specific value (not dependent on previous)
+- Single update per event
+
+**Example:**
+```jsx
+// Direct - fine (not dependent on previous)
+setCount(0);  // Reset
+setName('Alice');  // Set specific value
+
+// Functional - necessary (dependent on previous)
+setCount(c => c + 1);  // Increment
+setItems(items => [...items, newItem]);  // Add to array
+```
+
+**Why it's strong:**
+- Clear distinction between the two
+- Explains when each is appropriate
+- Provides concrete examples
+
+---
+
+**Q: "What is state batching in React? Why does React batch updates?"**
+
+**Strong answer:**
+
+**What is batching:**
+
+React **groups multiple state updates into a single re-render** for performance.
+
+**Example:**
+```jsx
+function handleClick() {
+  setCount(count + 1);
+  setName('Alice');
+  setAge(30);
+}
+// All 3 updates → 1 re-render
+```
+
+**Why React batches:**
+
+1. **Performance**: Prevents unnecessary re-renders
+   - Without batching: 3 renders (expensive)
+   - With batching: 1 render (efficient)
+
+2. **Consistency**: User sees final state only
+   - No intermediate/partial UI states
+   - Prevents flickering
+
+3. **Simplicity**: Less work for React
+   - Fewer Virtual DOM diffs
+   - Fewer DOM updates
+
+**React 18 improvement:**
+
+- **React 17**: Only batched in event handlers
+- **React 18**: Batches everywhere (promises, timeouts, etc.)
+
+**Example of improvement:**
+```jsx
+fetch('/api').then(data => {
+  setData(data);
+  setLoading(false);
+});
+// React 17: 2 renders
+// React 18: 1 render (batched)
+```
+
+**Why it's strong:**
+- Explains what and why
+- Shows performance benefit with numbers
+- Mentions React 18 improvement
+- Provides before/after example
+
+---
+
+**Q: "Why doesn't this work as expected?"**
+
+```jsx
+const [count, setCount] = useState(0);
+
+function handleClick() {
+  setCount(count + 1);
+  setCount(count + 1);
+  setCount(count + 1);
+  console.log(count);  // What does this log?
+}
+```
+
+**Strong answer:**
+
+**What happens:**
+
+1. All three `setCount` calls use `count = 0` (snapshot from current render)
+2. React queues three updates: `[1, 1, 1]`
+3. React processes queue: last value wins → `count = 1`
+4. `console.log(count)` logs `0` (state doesn't update until next render)
+
+**Why this happens:**
+
+**State is a snapshot** - `count` is a constant for the entire function execution:
+
+```javascript
+// Simplified mental model
+function handleClick() {
+  const count = 0;  // Frozen at 0 for this execution
+
+  setCount(0 + 1);  // Queue: set to 1
+  setCount(0 + 1);  // Queue: set to 1
+  setCount(0 + 1);  // Queue: set to 1
+  console.log(0);   // Logs 0
+}
+// After function completes → React re-renders with count = 1
+```
+
+**How to fix:**
+
+Use functional updates:
+
+```jsx
+function handleClick() {
+  setCount(c => c + 1);  // Queue: fn(0) → 1
+  setCount(c => c + 1);  // Queue: fn(1) → 2
+  setCount(c => c + 1);  // Queue: fn(2) → 3
+  console.log(count);     // Still logs 0 (but next render will be 3)
+}
+```
+
+**Note:** `console.log` still shows old value because state updates are asynchronous. To see new value, put console.log in component body:
+
+```jsx
+function Component() {
+  const [count, setCount] = useState(0);
+  console.log('Current count:', count);  // Logs on every render
+  // ...
+}
+```
+
+**Why it's strong:**
+- Explains the snapshot mental model
+- Shows the queue processing
+- Provides the fix
+- Addresses console.log timing
+
+---
+
+**Q: "When would you use `flushSync`?"**
+
+**Strong answer:**
+
+**What `flushSync` does:**
+
+Forces React to apply state updates **synchronously** (immediately) instead of batching them.
+
+```jsx
+import { flushSync } from 'react-dom';
+
+flushSync(() => {
+  setCount(1);
+});
+// DOM is updated immediately here (synchronous)
+```
+
+**When to use** (very rare):
+
+1. **Measuring DOM after state change**
+   ```jsx
+   flushSync(() => {
+     setExpanded(true);
+   });
+   const height = element.getBoundingClientRect().height;
+   // Need DOM to reflect expanded state before measuring
+   ```
+
+2. **Scrolling to element that depends on state**
+   ```jsx
+   flushSync(() => {
+     setMessages([...messages, newMessage]);
+   });
+   scrollToBottom();  // Needs new message in DOM first
+   ```
+
+3. **Third-party integrations expecting synchronous updates**
+   ```jsx
+   flushSync(() => {
+     setData(newData);
+   });
+   thirdPartyLib.refresh();  // Expects DOM to be updated
+   ```
+
+**When NOT to use** (99% of cases):
+
+- Regular state updates (let React batch)
+- "I want to see the value immediately" (use functional updates instead)
+- Debugging (use React DevTools instead)
+
+**Performance cost:**
+
+- Bypasses React's optimizations
+- Triggers immediate re-render (expensive)
+- Can cause layout thrashing if overused
+
+**Rule of thumb:** If you're not sure you need it, you don't need it. Almost all React apps never use `flushSync`.
+
+**Why it's strong:**
+- Explains what it does
+- Lists valid (rare) use cases
+- Warns against overuse
+- Mentions performance cost
+
+---
+
+### Guiding Others: Teaching State Updates to Juniors
+
+**Teaching progression:**
+
+**Week 1: The Snapshot Mental Model**
+
+1. Show broken code:
+   ```jsx
+   setCount(count + 1);
+   setCount(count + 1);
+   setCount(count + 1);
+   // Why only +1 not +3?
+   ```
+
+2. Explain: State is a snapshot (constant for the render)
+3. Trace through manually with `count = 0`
+4. **Exercise:** "Predict the final count value in various scenarios"
+
+---
+
+**Week 2: Functional Updates**
+
+1. Introduce the solution: `setCount(c => c + 1)`
+2. Explain: Function receives latest value, not snapshot
+3. Show how React chains the functions
+4. **Exercise:** "Convert these direct updates to functional updates"
+
+---
+
+**Week 3: Batching Concept**
+
+1. Demo multiple state updates in one event
+2. Add console.log to show single re-render
+3. Explain performance benefit
+4. Show React 18 improvement (async batching)
+5. **Exercise:** "Find opportunities for batching in this code"
+
+---
+
+**Week 4: Practical Patterns**
+
+1. When to use functional vs direct
+2. Common mistakes and how to avoid
+3. Debugging state updates
+4. **Exercise:** "Fix buggy components with state update issues"
+
+---
+
+**Common mistakes juniors make:**
+
+**Mistake 1: Expecting immediate update**
+
+```jsx
+setCount(5);
+console.log(count);  // Expects 5, gets old value
+```
+
+**How to correct:**
+- Explain: Updates are scheduled, not immediate
+- Show: console.log in component body (runs on each render)
+- Teach: Mental model of snapshots and re-renders
+
+---
+
+**Mistake 2: Multiple updates with snapshot**
+
+```jsx
+setCount(count + 1);
+setCount(count + 1);  // Expects +2, gets +1
+```
+
+**How to correct:**
+- Trace through manually showing both use `count = 0`
+- Introduce functional updates
+- Practice converting
+
+---
+
+**Mistake 3: Using functional updates unnecessarily**
+
+```jsx
+setName(n => 'Alice');  // Overkill, not dependent on previous
+```
+
+**How to correct:**
+- Explain when functional updates are needed
+- Show: `setName('Alice')` is simpler and clearer
+- Rule: Only use functional when dependent on previous
+
+---
+
+**Mistake 4: Mutating state then setting**
+
+```jsx
+items.push(newItem);
+setItems(items);  // Same reference, won't trigger re-render
+```
+
+**How to correct:**
+- Explain: React uses reference equality
+- Show: Need new array `setItems([...items, newItem])`
+- Teach: Immutable updates (will cover in depth in Section 6)
+
+---
+
+**Red flags that someone needs more practice:**
+- "Why isn't my state updating?" (expecting immediate)
+- Multiple `setCount(count + 1)` calls in same function
+- Mutating objects/arrays then setting state
+- Not understanding when to use functional updates
+
+---
+
+## ✅ Section 3 Complete Checklist
+
+Before moving on, ensure you can:
+
+- [ ] **Explain** why `setCount(count + 1)` three times only increments by 1
+- [ ] **Use** functional updates when next state depends on previous
+- [ ] **Understand** what batching is and why React does it
+- [ ] **Know** React 18 batches everywhere (promises, timeouts, etc.)
+- [ ] **Distinguish** when to use functional vs direct updates
+- [ ] **Predict** the result of multiple state updates in code
+- [ ] **Teach** a junior the snapshot mental model
+
+**Confidence check:**
+- ✅ I understand state as a snapshot within each render
+- ✅ I can use functional updates correctly
+- ✅ I know when batching happens
+- ✅ I can debug state update issues
+
+**Next:** Section 4 - Lifting State Up
+
+---
